@@ -24,9 +24,9 @@ sim = client.require('sim')
 simualtion_time = 50  # Total simulation time [s]
 
 # PID parameters.
-kp_param = 0.8
-ki_param = 0.1
-kd_param = 1.15
+kp_z = 0.8
+ki_z = 0.1
+kd_z = 1.15
 
 # Data log initialization.
 time_log = []      # List to log simulation time
@@ -55,9 +55,9 @@ for i in range(4):
 # =============================================================================
 
 # Set the target object's initial position.
-sim.setObjectPosition(targetHandle, -1, [0.0, 0.0, 2.0])
+sim.setObjectPosition(targetHandle, -1, [0.0, 4.0, 1.0])
 # Set the drone's initial position.
-sim.setObjectPosition(droneHandle, -1, [0.0, 0.0, 1.0])
+sim.setObjectPosition(droneHandle, -1, [0.0, 4.0, 1.0])
 
 # =============================================================================
 # START SIMULATION
@@ -122,7 +122,7 @@ u_min = np.array([-m_drone * g, -0.015, -0.015, -1.0])
 u_max = np.array([1.0, 0.015, 0.015, 1.0])
 
 # Create an instance of the PID controller for altitude correction.
-pid_z = PIDController(kp=kp_param, ki=ki_param, kd=kd_param, dt=dt)
+pid_z = PIDController(kp=kp_z, ki=ki_z, kd=kd_z, dt=dt)
 
 # Arm length for force allocation (distance from center to each propeller).
 l_arm = 0.13
@@ -158,13 +158,15 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     # Log the current state and time.
     time_log.append(t)
     state_log.append(x0)
-    """ 
+    
+    # --- Target Position Update - Cicrular Movement ---
+    
     targetObjPos = [
-        4 * np.sin(0.4*t),  # Sine wave movement for x
-        4 * np.cos(0.4*t),  # Sine wave movement for y
-        3.0             # Fixed altitude (z)
+        4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
+        4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
+        1.0+0.1*t             # Fixed altitude (z)
     ]
-    sim.setObjectPosition(targetHandle, -1, targetObjPos)  """
+    sim.setObjectPosition(targetHandle, -1, targetObjPos)  
 
     # --- Define the Reference State ---
     targetPos = sim.getObjectPosition(targetHandle, -1)
@@ -179,7 +181,8 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     # --- Solve the MPC Problem with PID Altitude Correction ---
     try:
         u_opt, x_pred = mpc_controller(
-            x0, A_d, B_d, ref, N, Q, R, u_min, u_max, pid_controller=pid_z
+            x0, A_d, B_d, ref, N, Q, R, u_min, u_max, 
+            pid_controller=pid_z,
         )
     except Exception as e:
         print("MPC error:", e)
@@ -225,6 +228,12 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     # --- Apply Forces to Propellers ---
     for i in range(4):
         sim.addForceAndTorque(propellerHandle[i], forces_world[i], [0, 0, 0])
+    
+    #Rotate the propellers (visual effect)
+    sim.setJointTargetVelocity(jointHandle[0], -100)
+    sim.setJointTargetVelocity(jointHandle[1], 100)
+    sim.setJointTargetVelocity(jointHandle[2], -100)
+    sim.setJointTargetVelocity(jointHandle[3], 100)
 
     # Step the simulation.
     sim.step()
