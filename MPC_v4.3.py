@@ -181,12 +181,18 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     
     # --- Target Position Update - Cicrular Movement ---
     
-    targetObjPos = [
-        4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
-        4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
-        1.0+0.1*t             # Fixed altitude (z)
-    ]
-    sim.setObjectPosition(targetHandle, -1, targetObjPos) 
+    """ end_time = simualtion_time-5
+    if simualtion_time-t < 5:
+        targetObjPos = [0, 0, 1.0+0.1*end_time]
+    else:
+    
+        targetObjPos = [
+            4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
+            4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
+            1.0+0.1*t             # Fixed altitude (z)
+        ]
+    
+    sim.setObjectPosition(targetHandle, -1, targetObjPos)  """
 
     # --- Define the Reference State ---
     

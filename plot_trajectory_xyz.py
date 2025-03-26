@@ -73,6 +73,6 @@ def animate(i):
 # Create the animation (blitting is generally not supported in 3D)
 num_frames = len(drone_x)
 ani = animation.FuncAnimation(fig, animate, frames=num_frames, init_func=init,
-                              interval=50, blit=False)
+                              interval=0.01, blit=False)
 
 plt.show()

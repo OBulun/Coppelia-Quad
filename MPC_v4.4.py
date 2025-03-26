@@ -1,3 +1,10 @@
+# Description: This script implements a Model Predictive Controller (MPC) for a quadcopter drone in CoppeliaSim.
+# The drone is controlled to track a target position
+# 
+#Version: 4.3 : Added PID controller for x and y position control (as a low level controller after MPC -- non Stable at the moment -- needs tuning) 
+
+
+
 import noise
 import numpy as np
 import cvxpy as cp  # For MPC optimization
@@ -21,12 +28,22 @@ sim = client.require('sim')
 # SIMULATION PARAMETERS & LOG INITIALIZATION
 # =============================================================================
 
-simualtion_time = 10  # Total simulation time [s]
+simualtion_time = 50  # Total simulation time [s]
 
 # PID parameters.
 kp_z = 0.8
-ki_z = 0.1
+ki_z = 0.1 
 kd_z = 1.15
+
+
+kp_x = 0.0  
+ki_x = 0.0  
+kd_x = 0.0
+
+
+kp_y = 0.0
+ki_y = 0.0        
+kd_y = 0.0
 
 # Data log initialization.
 time_log = []      # List to log simulation time
@@ -55,9 +72,9 @@ for i in range(4):
 # =============================================================================
 
 # Set the target object's initial position.
-sim.setObjectPosition(targetHandle, -1, [0.0, 0.0, 2.0])
+sim.setObjectPosition(targetHandle, -1, [0.0, 4.0, 1.0])
 # Set the drone's initial position.
-sim.setObjectPosition(droneHandle, -1, [0.0, 0.0, 2.0])
+sim.setObjectPosition(droneHandle, -1, [0.0, 4.0, 1.0])
 
 # =============================================================================
 # START SIMULATION
@@ -74,7 +91,7 @@ sim.startSimulation()
 # Define model parameters.
 dt = sim.getSimulationTimeStep()  # Time step [s]
 N = 10                            # MPC prediction horizon
-m_drone = 0.52                # Drone mass [kg]
+m_drone = 0.52                    # Drone mass [kg]
 g = 9.81                          # Gravitational acceleration [m/s²]
 I_x = +6.667e-05                  # moment of inertia about x (roll)
 I_y = +0.00753                    # moment of inertia about y (pitch)
@@ -123,12 +140,14 @@ u_max = np.array([1.0, 0.015, 0.015, 1.0])
 
 # Create an instance of the PID controller for altitude correction.
 pid_z = PIDController(kp=kp_z, ki=ki_z, kd=kd_z, dt=dt)
+pid_x = PIDController(kp=kp_x, ki=ki_x, kd=kd_x, dt=dt)
+pid_y = PIDController(kp=kp_y, ki=ki_y, kd=kd_y, dt=dt)
 
 # Arm length for force allocation (distance from center to each propeller).
 l_arm = 0.13
 
 # Save simulation parameters.
-save_parameters(Q, R, N, pid_z.get_parameters(), filename="simulation_parameters.txt")
+save_parameters(Q, R, N, pid_z.get_parameters(),pid_x.get_parameters(),pid_y.get_parameters(), filename="simulation_parameters.txt")
 
 # =============================================================================
 # SIMULATION LOOP
@@ -142,6 +161,7 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     linVel, _ = sim.getObjectVelocity(droneHandle)  # [vx, vy, vz]
     ori = sim.getObjectOrientation(droneHandle, -1)  # [roll, pitch, yaw]
     _, angVel = sim.getObjectVelocity(droneHandle)   # Angular velocities.
+
     
     # Construct the state vector.
     x0 = np.array([
@@ -150,30 +170,41 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         ori[0], ori[1], ori[2],
         angVel[0], angVel[1], angVel[2]
     ])
-    """ Simulate Sensor Noise """
-    """ x0[0] = noise.add_measurement_noise(x0[0], 0.1)
+    """
+    x0[0] = noise.add_measurement_noise(x0[0], 0.1)
     x0[1] = noise.add_measurement_noise(x0[1], 0.1)
-    x0[2] = noise.add_measurement_noise(x0[2], 0.1) """  
-    
+    x0[2] = noise.add_measurement_noise(x0[2], 0.1)  # Simulate sensor noise.
+    """
     # Log the current state and time.
     time_log.append(t)
     state_log.append(x0)
     
-    """# --- Target Position Update - Christmas Tree Pattern ---"""
+    # --- Target Position Update - Cicrular Movement ---
     
-    """ targetObjPos = [
-        4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
-        4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
-        1.0+0.1*t             # Fixed altitude (z)
-    ] """
-    """ # --- Target Position Update - Step  ---"""
-    """if t >=0.1 and t < 5:
-        sim.setObjectPosition(targetHandle, -1, [2.0, 0.0, 2.0])"""
+    """ end_time = simualtion_time-5
+    if simualtion_time-t < 5:
+        targetObjPos = [0, 0, 1.0+0.1*end_time]
+    else:
     
-
+        targetObjPos = [
+            4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
+            4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
+            1.0+0.1*t             # Fixed altitude (z)
+        ] 
+    
+    sim.setObjectPosition(targetHandle, -1, targetObjPos) 
+    """
     # --- Define the Reference State ---
+    
+    """ if t >=0.1 and t < 5:
+        sim.setObjectPosition(targetHandle, -1, [2.0, 0.0, 2.0])
+    elif t >= 5 and t < 10:
+        sim.setObjectPosition(targetHandle, -1, [2.0, 2.0, 2.0])
+    elif t >= 10:
+        sim.setObjectPosition(targetHandle, -1, [-2.0, -2.0, 2.0]) """
+    
     targetPos = sim.getObjectPosition(targetHandle, -1)
-    target_log.append(targetPos)
+    target_log.append(targetPos)   
     ref = np.array([
         targetPos[0], targetPos[1], targetPos[2],
         0, 0, 0,
@@ -191,10 +222,29 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         print("MPC error:", e)
         u_opt = np.zeros(4)
 
+
+    error_world = []
+    for element in pos:
+        error_world.append(ref[0] - element)
+        error_world.append(ref[1] - element)
+        error_world.append(ref[2] - element)
+
+    bodyMatrix = sim.getObjectMatrix(droneHandle, -1)
+    # Zero out the translation part.
+    bodyMatrix[3] = 0
+    bodyMatrix[7] = 0
+    bodyMatrix[11] = 0
+
+    error_body = sim.multiplyVector(sim.getMatrixInverse(bodyMatrix), error_world)
+
+    u_corr_x = pid_x.update(error_body[0])
+    u_corr_y = pid_y.update(error_body[1])
+    
+
     # Extract control commands.
     delta_thrust = u_opt[0]
-    roll_torque  = u_opt[1]
-    pitch_torque = u_opt[2]
+    roll_torque  = u_opt[1] + u_corr_x
+    pitch_torque = u_opt[2] - u_corr_y
     yaw_torque   = u_opt[3]
     control_log.append(u_opt)
 
@@ -217,11 +267,7 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         [0, 0, f2],
         [0, 0, f3]
     ]
-    bodyMatrix = sim.getObjectMatrix(droneHandle, -1)
-    # Zero out the translation part.
-    bodyMatrix[3] = 0
-    bodyMatrix[7] = 0
-    bodyMatrix[11] = 0
+
 
     forces_world = []
     for force in forces_body:

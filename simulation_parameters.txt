@@ -1,8 +1,8 @@
 MPC Horizon (N): 10
 PID Parameters :
   PID Z:   kp: 0.8  ki: 0.1  kd: 1.15
-  PID X:   kp: 1.0  ki: 0.0  kd: 2.0
-  PID Y:   kp: 1.0  ki: 0.0  kd: 2.0
+  PID X:   kp: 0.0  ki: 0.0  kd: 0.0
+  PID Y:   kp: 0.0  ki: 0.0  kd: 0.0
 Q Matrix:
 [[0.3  0.   0.   0.   0.   0.   0.   0.   0.   0.   0.   0.  ]
  [0.   0.3  0.   0.   0.   0.   0.   0.   0.   0.   0.   0.  ]
