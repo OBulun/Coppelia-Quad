@@ -1,7 +1,7 @@
 # Description: This script implements a Model Predictive Controller (MPC) for a quadcopter drone in CoppeliaSim.
 # The drone is controlled to track a target position
 # 
-#Version: 4.3 : Added PID controller for x and y position control
+#Version: 4.3 : Added PID controller for x and y position control (as input to MPC)
 
 
 
@@ -37,13 +37,13 @@ kd_z = 1.15
 
 
 kp_x = 1.0  
-ki_x = 0.0  
-kd_x = 2.0
+ki_x = 0.02  
+kd_x = 0.5
 
 
 kp_y = 1.0
-ki_y = 0.0        
-kd_y = 2.0
+ki_y = 0.02        
+kd_y = 0.5
 
 # Data log initialization.
 time_log = []      # List to log simulation time
@@ -128,7 +128,7 @@ B_d = B * dt
 
 # Define cost matrices.
 Q = np.diag([0.3, 0.3, 3.0,    # x, y, z
-             0.01, 0.01, 0.1,  # vx, vy, vz
+             0.005, 0.005, 0.1,  # vx, vy, vz
              0.25, 0.25, 0.1,  # roll, pitch, yaw
              0.0, 0.0, 0.0])   # p, q, r
 
@@ -192,7 +192,7 @@ while (t := sim.getSimulationTime()) < simualtion_time:
             1.0+0.1*t             # Fixed altitude (z)
         ]
     
-    sim.setObjectPosition(targetHandle, -1, targetObjPos)  """
+    sim.setObjectPosition(targetHandle, -1, targetObjPos)   """
 
     # --- Define the Reference State ---
     
@@ -206,7 +206,9 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     targetPos = sim.getObjectPosition(targetHandle, -1)
     target_log.append(targetPos)
     error_x = targetPos[0] - pos[0]
+    error_x = max(-1.0, min(1.0, error_x))
     error_y = targetPos[1] - pos[1]
+    error_y = max(-1.0, min(1.0, error_y))
     ax_des = pid_x.update(error_x)
     ay_des = pid_y.update(error_y)    
     ref = np.array([

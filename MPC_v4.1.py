@@ -5,6 +5,8 @@
 # The script also uses a PID controller for altitude correction to improve tracking performance.
 #
 
+# v4.1: Followıng the target with taget object's position and velocity
+# 
 
 
 import noise
@@ -95,10 +97,11 @@ B_d = B * dt
              0.45, 0.45, 0.1, # roll pitch yaw
              0.0, 0.0, 0.0,]) # p q r
 R = np.diag([0.1, 0.4, 0.4, 0.1]) """
-Q = np.diag([0.5, 0.5, 3.0,# x y z
-             0.03, 0.03, 0.1,# vx vy vz
-             0.45, 0.45, 0.1, # roll pitch yaw
-             0.0, 0.0, 0.0,]) # p q r
+Q = np.diag([0.3, 0.3, 3.0,    # x, y, z
+             0.01, 0.01, 0.1,  # vx, vy, vz
+             0.25, 0.25, 0.1,  # roll, pitch, yaw
+             0.0, 0.0, 0.0])   # p, q, r
+
 R = np.diag([0.1, 0.4, 0.4, 0.1])
 
 # Input bounds for [delta_thrust, roll torque, pitch torque, yaw torque].

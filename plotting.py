@@ -72,7 +72,12 @@ def main():
     axs[2, 0].grid(True)
     
     # --- Unused subplot (bottom-right) ---
-    axs[2, 1].axis("off")
+    axs[2, 1].plot(df["time"], df["distance"], label="distance")
+    axs[2, 1].set_title("Distance to target vs Time")
+    axs[2, 1].set_xlabel("Time [s]")
+    axs[2, 1].set_ylabel("Distance [m]")
+    axs[2, 1].legend()
+    axs[2, 1].grid(True)
     
     # Add a text annotation with the parameter information.
     # Here we position it at (0.9, 0.01); adjust as needed.

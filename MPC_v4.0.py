@@ -17,11 +17,14 @@ import time
 client = RemoteAPIClient()
 sim = client.require('sim')
 
+timestr = time.strftime("%d%m%Y-%H%M%S")
+log_filename = f"simulation_logs.csv"
+
 # =============================================================================
 # SIMULATION PARAMETERS & LOG INITIALIZATION
 # =============================================================================
 
-simualtion_time = 10  # Total simulation time [s]
+simualtion_time = 50  # Total simulation time [s]
 
 # PID parameters.
 kp_z = 0.8
@@ -34,6 +37,7 @@ state_log = []     # List to log state vectors (x0)
 control_log = []   # List to log control inputs (u_opt)
 force_log = []     # List to log forces applied to propellers
 target_log = []    # Target position logs
+distance_log = []
 
 # =============================================================================
 # GET HANDLES FOR OBJECTS
@@ -55,9 +59,9 @@ for i in range(4):
 # =============================================================================
 
 # Set the target object's initial position.
-sim.setObjectPosition(targetHandle, -1, [0.0, 0.0, 2.0])
+sim.setObjectPosition(targetHandle, -1, [0.0, 4.0, 2.0])
 # Set the drone's initial position.
-sim.setObjectPosition(droneHandle, -1, [0.0, 0.0, 2.0])
+sim.setObjectPosition(droneHandle, -1, [0.0, 4.0, 2.0])
 
 # =============================================================================
 # START SIMULATION
@@ -79,6 +83,7 @@ g = 9.81                          # Gravitational acceleration [m/s²]
 I_x = +6.667e-05                  # moment of inertia about x (roll)
 I_y = +0.00753                    # moment of inertia about y (pitch)
 I_z = +0.00753                    # moment of inertia about z (yaw)
+l_arm = 0.13 # Arm length for force allocation (distance from center to each propeller). [m]
 
 # Construct continuous-time A and B matrices.
 A = np.zeros((12, 12))
@@ -124,8 +129,6 @@ u_max = np.array([1.0, 0.015, 0.015, 1.0])
 # Create an instance of the PID controller for altitude correction.
 pid_z = PIDController(kp=kp_z, ki=ki_z, kd=kd_z, dt=dt)
 
-# Arm length for force allocation (distance from center to each propeller).
-l_arm = 0.13
 
 # Save simulation parameters.
 save_parameters(Q, R, N, pid_z.get_parameters(), filename="simulation_parameters.txt")
@@ -161,14 +164,23 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     
     """# --- Target Position Update - Christmas Tree Pattern ---"""
     
-    """ targetObjPos = [
-        4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
-        4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
-        1.0+0.1*t             # Fixed altitude (z)
-    ] """
+    end_time = simualtion_time-5
+    if simualtion_time-t < 5:
+        targetObjPos = [0, 0, 1.0+0.1*end_time]
+    else:
+    
+        targetObjPos = [
+            4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
+            4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
+            1.0+0.1*t             # Fixed altitude (z)
+        ]
+    sim.setObjectPosition(targetHandle, -1, targetObjPos)
+
+
     """ # --- Target Position Update - Step  ---"""
-    """if t >=0.1 and t < 5:
-        sim.setObjectPosition(targetHandle, -1, [2.0, 0.0, 2.0])"""
+
+    #if t >=0.1 and t < 5:
+    #    sim.setObjectPosition(targetHandle, -1, [2.0, 2.0, 2.0])
     
 
     # --- Define the Reference State ---
@@ -180,6 +192,13 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         0, 0, 0,
         0, 0, 0
     ])
+
+    # -- Compute the distance to the target --
+    x_err = targetPos[0] - pos[0]
+    y_err = targetPos[1] - pos[1]
+    z_err = targetPos[2] - pos[2]
+    distance = np.sqrt(x_err**2 + y_err**2 + z_err**2)
+    distance_log.append(distance)
 
     # --- Solve the MPC Problem with PID Altitude Correction ---
     try:
@@ -245,8 +264,7 @@ while (t := sim.getSimulationTime()) < simualtion_time:
 # SAVE LOGS & STOP SIMULATION
 # =============================================================================
 
-timestr = time.strftime("%d%m%Y-%H%M%S")
-filename = f"simulation_logs.csv"
-save_logs(time_log, state_log, control_log, force_log, target_log, filename=filename)
+
+save_logs(time_log, state_log, control_log, force_log, target_log,distance_log, filename=log_filename)
 
 sim.stopSimulation()
