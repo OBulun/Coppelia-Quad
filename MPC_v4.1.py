@@ -9,15 +9,15 @@
 # 
 
 
-import noise
+import functions.noise as noise
 import numpy as np
 import cvxpy as cp  # For MPC optimization
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
-from PID_Controller import PIDController
+from functions.PID_Controller import PIDController
 import pandas as pd
-from save_parameters import save_parameters
-from save_logs import save_logs
-from MPC_controller import mpc_controller
+from functions.save_parameters import save_parameters
+from functions.save_logs import save_logs
+from functions.MPC_controller import mpc_controller
 
 # Connect to the remote API server.
 client = RemoteAPIClient() 

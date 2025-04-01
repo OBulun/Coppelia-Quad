@@ -27,7 +27,7 @@ log_filename = f"simulation_logs.csv"
 # SIMULATION PARAMETERS & LOG INITIALIZATION
 # =============================================================================
 
-simualtion_time = 50  # Total simulation time [s]
+simualtion_time = 10  # Total simulation time [s]
 
 # PID parameters.
 kp_z = 0.8

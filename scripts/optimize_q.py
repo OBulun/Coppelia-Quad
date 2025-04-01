@@ -3,10 +3,10 @@ import cvxpy as cp  # For MPC optimization
 import time
 from scipy.optimize import minimize
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
-from PID_Controller import PIDController
-from save_parameters import save_parameters
-from save_logs import save_logs
-from MPC_controller import mpc_controller
+from functions.PID_Controller import PIDController
+from functions.save_parameters import save_parameters
+from functions.save_logs import save_logs
+from functions.MPC_controller import mpc_controller
 
 def run_simulation(Q):
     """
