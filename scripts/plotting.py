@@ -16,13 +16,17 @@ def main():
     fig, axs = plt.subplots(3, 2, figsize=(14, 12))
     
     # --- Plot Positions ---
-    axs[0, 0].plot(df["time"], df["x"], label="x")
-    axs[0, 0].plot(df["time"], df["y"], label="y")
-    axs[0, 0].plot(df["time"], df["z"], label="z")
+    axs[0, 0].plot(df["time"], df["x"], label="x", color="C0")
+    axs[0, 0].plot(df["time"], df["y"], label="y", color="C1")
+    axs[0, 0].plot(df["time"], df["z"], label="z", color="C2")
     # Plot target positions with dashed lines.
-    axs[0, 0].plot(df["time"], df["target_x"], label="target x", linestyle="--")
-    axs[0, 0].plot(df["time"], df["target_y"], label="target y", linestyle="--")
-    axs[0, 0].plot(df["time"], df["target_z"], label="target z", linestyle="--")
+    axs[0, 0].plot(df["time"], df["target_x"], label="target x", linestyle="--", color="C0")
+    axs[0, 0].plot(df["time"], df["target_y"], label="target y", linestyle="--", color="C1")
+    axs[0, 0].plot(df["time"], df["target_z"], label="target z", linestyle="--", color="C2")
+    #Plot DWA
+    #axs[0, 0].plot(df["time"], df["dwa_x"], label="dwa x", linestyle=":", color="C0")
+    #axs[0, 0].plot(df["time"], df["dwa_y"], label="dwa y", linestyle=":", color="C1")
+    #axs[0, 0].plot(df["time"], df["dwa_z"], label="dwa z", linestyle=":", color="C2")
     axs[0, 0].set_title("Positions vs Time")
     axs[0, 0].set_xlabel("Time [s]")
     axs[0, 0].set_ylabel("Position [m]")
@@ -33,6 +37,9 @@ def main():
     axs[0, 1].plot(df["time"], df["vx"], label="vx")
     axs[0, 1].plot(df["time"], df["vy"], label="vy")
     axs[0, 1].plot(df["time"], df["vz"], label="vz")
+    #axs[0, 1].plot(df["time"], df["target_vx"], label="target vx", linestyle="--")
+    #axs[0, 1].plot(df["time"], df["target_vy"], label="target vy", linestyle="--")
+    #axs[0, 1].plot(df["time"], df["target_vz"], label="target vz", linestyle="--")
     axs[0, 1].set_title("Velocities vs Time")
     axs[0, 1].set_xlabel("Time [s]")
     axs[0, 1].set_ylabel("Velocity [m/s]")

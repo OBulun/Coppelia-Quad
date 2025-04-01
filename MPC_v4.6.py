@@ -1,5 +1,5 @@
+#----- v4.6: Reference generation with Dynamic Window Approach-- see trajectory.py
 
-# v4.0 Linear MPC control - PID on altitude Z
 
 import functions.noise as noise
 import numpy as np
@@ -11,6 +11,7 @@ from functions.save_parameters import save_parameters
 from functions.save_logs import save_logs
 from functions.MPC_controller import mpc_controller
 import time
+from functions.DWA import dynamic_window_approach
 
 # =============================================================================
 # INITIALIZATION & CONNECTION SETUP
@@ -29,10 +30,18 @@ log_filename = f"simulation_logs.csv"
 
 simualtion_time = 50  # Total simulation time [s]
 
+init_target_pos = [0.0, 4.0, 1.0] # Initial target position x y z
+init_drone_pos =  [0.0, 4.0, 1.0] # Initial drone position x y z
+
+
+
 # PID parameters.
 kp_z = 0.8
 ki_z = 0.1
 kd_z = 1.15
+
+
+
 
 # Data log initialization.
 time_log = []      # List to log simulation time
@@ -41,6 +50,8 @@ control_log = []   # List to log control inputs (u_opt)
 force_log = []     # List to log forces applied to propellers
 target_log = []    # Target position logs
 distance_log = []
+target_vel_log = []
+dwa_log = []
 
 # =============================================================================
 # GET HANDLES FOR OBJECTS
@@ -62,9 +73,9 @@ for i in range(4):
 # =============================================================================
 
 # Set the target object's initial position.
-sim.setObjectPosition(targetHandle, -1, [0.0, 4.0, 1.0])
+sim.setObjectPosition(targetHandle, -1, init_target_pos)
 # Set the drone's initial position.
-sim.setObjectPosition(droneHandle, -1, [0.0, 4.0, 1.0])
+sim.setObjectPosition(droneHandle, -1,  init_drone_pos)
 
 # =============================================================================
 # START SIMULATION
@@ -118,7 +129,11 @@ B_d = B * dt
 # =============================================================================
 
 # Define cost matrices.
-Q = np.diag([0.3, 0.3, 3.0,    # x, y, z
+Q_follow = np.diag([0.05, 0.05, 0.0,    # x, y, z
+             0.1, 0.1, 0.1,  # vx, vy, vz
+             0.05, 0.05, 0.0,  # roll, pitch, yaw
+             0.1, 0.1, 0.0])   # p, q, r
+Q_stabilize = np.diag([0.3, 0.3, 3.0,    # x, y, z
              0.01, 0.01, 0.1,  # vx, vy, vz
              0.25, 0.25, 0.1,  # roll, pitch, yaw
              0.0, 0.0, 0.0])   # p, q, r
@@ -131,10 +146,17 @@ u_max = np.array([1.0, 0.015, 0.015, 1.0])
 
 # Create an instance of the PID controller for altitude correction.
 pid_z = PIDController(kp=kp_z, ki=ki_z, kd=kd_z, dt=dt)
+pid_x = PIDController(0.1, 0.0, 0.1, dt)
+pid_y = PIDController(0.1, 0.0, 0.1, dt)
 
 
 # Save simulation parameters.
-save_parameters(Q, R, N, pid_z.get_parameters(), filename="simulation_parameters.txt")
+save_parameters(Q_follow, R, N, pid_z.get_parameters(), filename="simulation_parameters.txt")
+
+# =============================================================================
+# DWA
+# =============================================================================
+
 
 # =============================================================================
 # SIMULATION LOOP
@@ -142,7 +164,7 @@ save_parameters(Q, R, N, pid_z.get_parameters(), filename="simulation_parameters
 
 while (t := sim.getSimulationTime()) < simualtion_time:
     print(f"Simulation time: {t:.2f} s")
-
+    
     # --- State Estimation ---
     pos = sim.getObjectPosition(droneHandle, -1)  # [x, y, z] in world frame.
     linVel, _ = sim.getObjectVelocity(droneHandle)  # [vx, vy, vz]
@@ -156,15 +178,6 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         ori[0], ori[1], ori[2],
         angVel[0], angVel[1], angVel[2]
     ])
-    """ Simulate Sensor Noise """
-    """ x0[0] = noise.add_measurement_noise(x0[0], 0.1)
-    x0[1] = noise.add_measurement_noise(x0[1], 0.1)
-    x0[2] = noise.add_measurement_noise(x0[2], 0.1) """  
-    
-    # Log the current state and time.
-    time_log.append(t)
-    state_log.append(x0)
-    
     """# --- Target Position Update - Christmas Tree Pattern ---"""
     
     end_time = simualtion_time-5
@@ -179,29 +192,45 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         ]
     sim.setObjectPosition(targetHandle, -1, targetObjPos)
 
-
-    """ # --- Target Position Update - Step  ---"""
-
-    #if t >=0.1 and t < 5:
-    #    sim.setObjectPosition(targetHandle, -1, [2.0, 2.0, 2.0])
     
-
-    # --- Define the Reference State ---
-    targetPos = sim.getObjectPosition(targetHandle, -1)
-    target_log.append(targetPos)
-    ref = np.array([
-        targetPos[0], targetPos[1], targetPos[2],
-        0, 0, 0,
-        0, 0, 0,
-        0, 0, 0
-    ])
-
+    # Log the current state and time.
+    time_log.append(t)
+    state_log.append(x0)
     # -- Compute the distance to the target --
+    targetPos = sim.getObjectPosition(targetHandle, -1)
     x_err = targetPos[0] - pos[0]
     y_err = targetPos[1] - pos[1]
     z_err = targetPos[2] - pos[2]
     distance = np.sqrt(x_err**2 + y_err**2 + z_err**2)
     distance_log.append(distance)
+    
+    
+    
+    target_state = np.array([targetPos[0], targetPos[1], targetPos[2], 0, 0, 0] + [0]*6)
+    # --- Define the Reference State DWA ---
+
+
+    Q = Q_stabilize
+    dynamic_constraints = {
+            "v_max": np.array([3.0, 3.0, 2.0]),
+            "a_max": np.array([3.5, 3.50, 3.0]),
+            "angle_max": np.array([np.radians(25), np.radians(25), np.radians(360)]),  # 25° limits.
+            "num_samples": 6
+        }
+    ref = dynamic_window_approach(x0,target_state,dynamic_constraints,dt,10)
+        #ref[3] += pid_x.update(x_err)
+        #ref[4] -= pid_y.update(y_err)
+
+    
+    #Log Dwa pos ref and target pos ref
+    target_log.append(target_state[0:3])
+    dwa_log.append(ref[0:3])
+    target_vel_log.append(ref[3:6])
+
+    ref[2] = target_state[2]
+    
+
+
 
     # --- Solve the MPC Problem with PID Altitude Correction ---
     try:
@@ -262,12 +291,21 @@ while (t := sim.getSimulationTime()) < simualtion_time:
 
     # Step the simulation.
     sim.step()
+    
 
 # =============================================================================
 # SAVE LOGS & STOP SIMULATION
 # =============================================================================
 
 
-save_logs(time_log, state_log, control_log, force_log, target_log,distance_log, filename=log_filename)
+save_logs(time_log,
+           state_log,
+            control_log,
+            force_log,
+            target_log,
+            distance_log,
+            target_vel_log=target_log,
+            dwa_log=dwa_log, 
+            filename=log_filename)
 
 sim.stopSimulation()

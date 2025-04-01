@@ -1,6 +1,6 @@
 import pandas as pd
 
-def save_logs(time_log, state_log, control_log, force_log, target_log,distance_log=None, filename="simulation_logs.csv"):
+def save_logs(time_log, state_log, control_log, force_log, target_log,distance_log=None,target_vel_log=None, dwa_log= None, filename="simulation_logs.csv"):
     # Create a DataFrame with appropriate column names.
     df = pd.DataFrame({
         "time": time_log,
@@ -27,7 +27,14 @@ def save_logs(time_log, state_log, control_log, force_log, target_log,distance_l
         "target_x": [t[0] for t in target_log],
         "target_y": [t[1] for t in target_log],
         "target_z": [t[2] for t in target_log],
+        #"dwa_x" : [d[0] for d in dwa_log],
+        #"dwa_y" : [d[1] for d in dwa_log],
+        #"dwa_z" : [d[2] for d in dwa_log],
+        #"target_vx": [v[0] for v in target_vel_log],
+        #"target_vy": [v[1] for v in target_vel_log],
+        #"target_vz": [v[2] for v in target_vel_log],
         "distance": distance_log
+        
     })
     df.to_csv(filename, index=False)
     print(f"Logs saved to {filename}")

@@ -18,6 +18,10 @@ def mpc_controller(x0, A_d, B_d, ref, N, Q, R, u_min, u_max,
         constraints.append(x[:, k+1] == A_d @ x[:, k] + B_d @ u[:, k])
         constraints.append(u[:, k] >= u_min)
         constraints.append(u[:, k] <= u_max)
+        constraints.append(x[6, k] >= -0.5)  # Roll lower bound
+        constraints.append(x[6, k] <= 0.5)   # Roll upper bound
+        constraints.append(x[7, k] >= -0.5)  # Pitch lower bound
+        constraints.append(x[7, k] <= 0.5)   # Pitch upper bound
  
     cost += cp.quad_form(x[:, N] - ref, Q)
     

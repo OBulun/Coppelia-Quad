@@ -52,6 +52,6 @@ def animate(i):
 # Create the animation
 num_frames = len(drone_x)
 ani = animation.FuncAnimation(fig, animate, frames=num_frames, init_func=init,
-                              interval=50, blit=True)
+                              interval=0.01, blit=True)
 
 plt.show()
