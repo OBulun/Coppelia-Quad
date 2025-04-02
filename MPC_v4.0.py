@@ -9,7 +9,7 @@ from functions.PID_Controller import PIDController
 import pandas as pd
 from functions.save_parameters import save_parameters
 from functions.save_logs import save_logs
-from functions.MPC_controller import mpc_controller
+from functions.mpc_osqp import mpc_controller
 import time
 
 # =============================================================================
@@ -81,12 +81,14 @@ sim.startSimulation()
 # Define model parameters.
 dt = sim.getSimulationTimeStep()  # Time step [s]
 N = 10                            # MPC prediction horizon
-m_drone = 0.52                # Drone mass [kg]
+m_drone = 3.61                # Drone mass [kg]
 g = 9.81                          # Gravitational acceleration [m/s²]
-I_x = +6.667e-05                  # moment of inertia about x (roll)
-I_y = +0.00753                    # moment of inertia about y (pitch)
-I_z = +0.00753                    # moment of inertia about z (yaw)
+I_x = +0.4815                # moment of inertia about x (roll)
+I_y = +0.4815                    # moment of inertia about y (pitch)
+I_z = +0.5778                    # moment of inertia about z (yaw)
 l_arm = 0.13 # Arm length for force allocation (distance from center to each propeller). [m]
+inertiaMatrix, _ = sim.getShapeInertia(droneHandle)
+print(inertiaMatrix)
 
 # Construct continuous-time A and B matrices.
 A = np.zeros((12, 12))
@@ -105,9 +107,9 @@ A[8,11] = 1    # yaw dot = r.
 # Angular accelerations (rows 9-11) are driven by inputs only.
 B = np.zeros((12, 4))
 B[5, 0] = 1.0 / m_drone  # z acceleration from thrust deviation.
-B[9, 1] = 1.0            # roll acceleration from roll torque.
-B[10,2] = 1.0            # pitch acceleration from pitch torque.
-B[11,3] = 1.0            # yaw acceleration from yaw torque.
+B[9, 1] = 1.0  / I_x          # roll acceleration from roll torque.
+B[10,2] = 1.0  /I_y          # pitch acceleration from pitch torque.
+B[11,3] = 1.0  /I_z       # yaw acceleration from yaw torque.
 
 # Discretize the system (Euler discretization).
 A_d = np.eye(12) + A * dt
@@ -118,16 +120,16 @@ B_d = B * dt
 # =============================================================================
 
 # Define cost matrices.
-Q = np.diag([0.3, 0.3, 3.0,    # x, y, z
-             0.01, 0.01, 0.1,  # vx, vy, vz
-             0.25, 0.25, 0.1,  # roll, pitch, yaw
+Q = np.diag([0.5, 0.5, 3.0,    # x, y, z
+             0.05, 0.05, 0.1,  # vx, vy, vz
+             0.75, 0.75, 0.1,  # roll, pitch, yaw
              0.0, 0.0, 0.0])   # p, q, r
 
-R = np.diag([0.1, 0.4, 0.4, 0.1])
+R = np.diag([0.1, 0.05, 0.05, 0.1])
 
 # Input bounds for [delta_thrust, roll torque, pitch torque, yaw torque].
-u_min = np.array([-m_drone * g, -0.015, -0.015, -1.0])
-u_max = np.array([1.0, 0.015, 0.015, 1.0])
+u_min = np.array([-m_drone * g, -1.15, -1.15, -1.0])
+u_max = np.array([1.0, 1.15, 1.15, 1.0])
 
 # Create an instance of the PID controller for altitude correction.
 pid_z = PIDController(kp=kp_z, ki=ki_z, kd=kd_z, dt=dt)

@@ -1,5 +1,5 @@
-#----- v4.6: Reference generation with Dynamic Window Approach-- see trajectory.py
 
+# v4.0 Linear MPC control - PID on altitude Z
 
 import functions.noise as noise
 import numpy as np
@@ -11,7 +11,6 @@ from functions.save_parameters import save_parameters
 from functions.save_logs import save_logs
 from functions.mpc_osqp import mpc_controller
 import time
-from functions.DWA import dynamic_window_approach
 
 # =============================================================================
 # INITIALIZATION & CONNECTION SETUP
@@ -28,20 +27,14 @@ log_filename = f"simulation_logs.csv"
 # SIMULATION PARAMETERS & LOG INITIALIZATION
 # =============================================================================
 
-simualtion_time = 50  # Total simulation time [s]
+simualtion_time =30  # Total simulation time [s]
 
-init_target_pos = [0.0, 0.0, 1.0] # Initial target position x y z
-init_drone_pos =  [0.0, 0.0, 1.0] # Initial drone position x y z
-
-
+pattern = 1  # pattern 0:Christmas tree 1: rectangular
 
 # PID parameters.
 kp_z = 0.8
 ki_z = 0.1
 kd_z = 1.15
-
-
-
 
 # Data log initialization.
 time_log = []      # List to log simulation time
@@ -50,8 +43,6 @@ control_log = []   # List to log control inputs (u_opt)
 force_log = []     # List to log forces applied to propellers
 target_log = []    # Target position logs
 distance_log = []
-target_vel_log = []
-dwa_log = []
 
 # =============================================================================
 # GET HANDLES FOR OBJECTS
@@ -73,9 +64,9 @@ for i in range(4):
 # =============================================================================
 
 # Set the target object's initial position.
-sim.setObjectPosition(targetHandle, -1, init_target_pos)
+sim.setObjectPosition(targetHandle, -1, [0.0, 4.0, 1.0])
 # Set the drone's initial position.
-sim.setObjectPosition(droneHandle, -1,  init_drone_pos)
+sim.setObjectPosition(droneHandle, -1, [0.0, 4.0, 1.0])
 
 # =============================================================================
 # START SIMULATION
@@ -88,17 +79,51 @@ sim.startSimulation()
 # =============================================================================
 # SYSTEM MODEL PARAMETERS & DISCRETIZATION
 # =============================================================================
+"""
+# Define model parameters.
+dt = sim.getSimulationTimeStep()  # Time step [s]
+N = 10                            # MPC prediction horizon
+m_drone = 3.61                # Drone mass [kg]
+g = 9.81                          # Gravitational acceleration [m/s²]
+I_x = +0.4815                  # moment of inertia about x (roll)
+I_y = +0.4815                 # moment of inertia about y (pitch)
+I_z = +0.5778                     # moment of inertia about z (yaw)
+l_arm = 0.13 # Arm length for force allocation (distance from center to each propeller). [m]
+
+# Construct continuous-time A and B matrices.
+A = np.zeros((12, 12))
+# Position integration.
+A[0, 3] = 1
+A[1, 4] = 1
+A[2, 5] = 1
+# Translational dynamics: linearized (small-angle) approximations.
+A[3, 7] = g    # x acceleration from pitch.
+A[4, 6] = -g   # y acceleration from roll.
+# Attitude kinematics.
+A[6, 9] = 1    # roll dot = p.
+A[7,10] = 1    # pitch dot = q.
+A[8,11] = 1    # yaw dot = r.
+
+# Angular accelerations (rows 9-11) are driven by inputs only.
+B = np.zeros((12, 4))
+B[5, 0] = 1.0 / m_drone  # z acceleration from thrust deviation.
+B[9, 1] = 1.0 / I_x           # roll acceleration from roll torque.
+B[10,2] = 1.0 / I_y           # pitch acceleration from pitch torque.
+B[11,3] = 1.0 / I_z          # yaw acceleration from yaw torque.
+"""
 
 # Define model parameters.
 dt = sim.getSimulationTimeStep()  # Time step [s]
 N = 10                            # MPC prediction horizon
 m_drone = 3.61                # Drone mass [kg]
 g = 9.81                          # Gravitational acceleration [m/s²]
-I_x = +0.15                  # moment of inertia about x (roll)
-I_y = +0.15                    # moment of inertia about y (pitch)
-I_z = +0.18                    # moment of inertia about z (yaw)
+I_x = +0.4815                  # moment of inertia about x (roll)
+I_y = +0.4815                 # moment of inertia about y (pitch)
+I_z = +0.5778                    # moment of inertia about z (yaw)
 l_arm = 0.13 # Arm length for force allocation (distance from center to each propeller). [m]
 bf = 0.0001
+inertiaMatrix, _ = sim.getShapeInertia(droneHandle)
+print(inertiaMatrix)
 
 # Construct continuous-time A and B matrices.
 A = np.zeros((12, 12))
@@ -107,9 +132,9 @@ A[0, 3] = 1
 A[1, 4] = 1
 A[2, 5] = 1
 A[3, 3] = -bf / m_drone
-A[3, 7] = -g
+A[3, 7] = g
 A[4, 4] = -bf / m_drone
-A[4, 6] = g
+A[4, 6] = -g
 A[5, 5] = -bf / m_drone
 A[6, 9] = 1
 A[7, 10] = 1
@@ -133,34 +158,23 @@ B_d = B * dt
 # =============================================================================
 
 # Define cost matrices.
-Q_follow = np.diag([0.05, 0.05, 0.0,    # x, y, z
-             0.1, 0.1, 0.1,  # vx, vy, vz
-             0.05, 0.05, 0.0,  # roll, pitch, yaw
-             0.1, 0.1, 0.0])   # p, q, r
-Q_stabilize = np.diag([0.3, 0.3, 3.0,    # x, y, z
-             0.01, 0.01, 0.1,  # vx, vy, vz
-             5.25, 5.25, 0.1,  # roll, pitch, yaw
+Q = np.diag([0.5, 0.5, 3.0,    # x, y, z
+             0.05, 0.05, 0.1,  # vx, vy, vz
+             0.75, 0.75, 0.1,  # roll, pitch, yaw
              0.0, 0.0, 0.0])   # p, q, r
 
-R = np.diag([0.1, 0.4, 0.4, 0.1])
+R = np.diag([0.1, 0.05, 0.05, 0.1])
 
 # Input bounds for [delta_thrust, roll torque, pitch torque, yaw torque].
-u_min = np.array([-m_drone * g, -0.015, -0.015, -1.0])
-u_max = np.array([1.0, 0.015, 0.015, 1.0])
+u_min = np.array([-m_drone * g, -1.15, -1.15, -1.0])
+u_max = np.array([1.0, 1.15, 1.15, 1.0])
 
 # Create an instance of the PID controller for altitude correction.
 pid_z = PIDController(kp=kp_z, ki=ki_z, kd=kd_z, dt=dt)
-pid_x = PIDController(0.1, 0.0, 0.1, dt)
-pid_y = PIDController(0.1, 0.0, 0.1, dt)
 
 
 # Save simulation parameters.
-save_parameters(Q_follow, R, N, pid_z.get_parameters(), filename="simulation_parameters.txt")
-
-# =============================================================================
-# DWA
-# =============================================================================
-
+save_parameters(Q, R, N, pid_z.get_parameters(), filename="simulation_parameters.txt")
 
 # =============================================================================
 # SIMULATION LOOP
@@ -168,7 +182,7 @@ save_parameters(Q_follow, R, N, pid_z.get_parameters(), filename="simulation_par
 
 while (t := sim.getSimulationTime()) < simualtion_time:
     print(f"Simulation time: {t:.2f} s")
-    
+
     # --- State Estimation ---
     pos = sim.getObjectPosition(droneHandle, -1)  # [x, y, z] in world frame.
     linVel, _ = sim.getObjectVelocity(droneHandle)  # [vx, vy, vz]
@@ -182,61 +196,61 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         ori[0], ori[1], ori[2],
         angVel[0], angVel[1], angVel[2]
     ])
-    """# --- Target Position Update - Christmas Tree Pattern ---"""
-    
-    """ end_time = simualtion_time-5
-    if simualtion_time-t < 5:
-        targetObjPos = [0, 0, 1.0+0.1*end_time]
-    else:
-    
-        targetObjPos = [
-            4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
-            4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
-            1.0+0.1*t             # Fixed altitude (z)
-        ]
-    sim.setObjectPosition(targetHandle, -1, targetObjPos) """
-    if t >=0.1 and t < 5:
-        sim.setObjectPosition(targetHandle, -1, [2.0, 2.0, 2.0])
-
+    """ Simulate Sensor Noise """
+    """ x0[0] = noise.add_measurement_noise(x0[0], 0.1)
+    x0[1] = noise.add_measurement_noise(x0[1], 0.1)
+    x0[2] = noise.add_measurement_noise(x0[2], 0.1) """  
     
     # Log the current state and time.
     time_log.append(t)
     state_log.append(x0)
-    # -- Compute the distance to the target --
+    
+    """# --- Target Position Update - Christmas Tree Pattern ---"""  
+    if pattern == 0:
+        end_time = simualtion_time-10
+        if simualtion_time-t < 10:
+            targetObjPos = [0, 0, 1.0+0.1*end_time]
+        else:
+        
+            targetObjPos = [
+                4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
+                4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
+                1.0+0.1*t             # Fixed altitude (z)
+            ]
+        sim.setObjectPosition(targetHandle, -1, targetObjPos)
+
+    elif pattern == 1:
+        """ # --- Target Position Update - Step  ---"""
+
+        if t >=0.1 and t < 5:
+            sim.setObjectPosition(targetHandle, -1, [2.0, 2.0, 2.0])
+        elif t>= 5 and t<10:
+            sim.setObjectPosition(targetHandle, -1, [-2.0, 2.0, 2.0])
+        elif t>= 10 and t < 15:
+            sim.setObjectPosition(targetHandle, -1, [-2.0, -2.0, 2.0])
+        elif t>=15 and t< 20:
+            sim.setObjectPosition(targetHandle, -1, [2.0, -2.0, 2.0])
+        else:
+            sim.setObjectPosition(targetHandle, -1, [0.0, 0.0, 2.0])
+    
+
+    # --- Define the Reference State ---
     targetPos = sim.getObjectPosition(targetHandle, -1)
+    target_log.append(targetPos)
+    ref = np.array([
+        targetPos[0], targetPos[1], targetPos[2],
+        0, 0, 0,
+        0, 0, 0,
+        0, 0, 0
+    ])
+
+    # -- Compute the distance to the target --
     x_err = targetPos[0] - pos[0]
     y_err = targetPos[1] - pos[1]
     z_err = targetPos[2] - pos[2]
     distance = np.sqrt(x_err**2 + y_err**2 + z_err**2)
+    
     distance_log.append(distance)
-    
-    
-    
-    target_state = np.array([targetPos[0], targetPos[1], targetPos[2], 0, 0, 0] + [0]*6)
-    # --- Define the Reference State DWA ---
-
-
-    Q = Q_stabilize
-    dynamic_constraints = {
-            "v_max": np.array([3.0, 3.0, 2.0]),
-            "a_max": np.array([3.5, 3.50, 3.0]),
-            "angle_max": np.array([np.radians(25), np.radians(25), np.radians(360)]),  # 25° limits.
-            "num_samples": 6
-        }
-    ref = dynamic_window_approach(x0,target_state,dynamic_constraints,dt,10)
-        #ref[3] += pid_x.update(x_err)
-        #ref[4] -= pid_y.update(y_err)
-
-    
-    #Log Dwa pos ref and target pos ref
-    target_log.append(target_state[0:3])
-    dwa_log.append(ref[0:3])
-    target_vel_log.append(ref[3:6])
-
-    ref[2] = target_state[2]
-    
-
-
 
     # --- Solve the MPC Problem with PID Altitude Correction ---
     try:
@@ -297,21 +311,16 @@ while (t := sim.getSimulationTime()) < simualtion_time:
 
     # Step the simulation.
     sim.step()
-    
+    if distance >= 10:
+        save_logs(time_log, state_log, control_log, force_log, target_log,distance_log, filename=log_filename)
+        sim.stopSimulation()
+        break
 
 # =============================================================================
 # SAVE LOGS & STOP SIMULATION
 # =============================================================================
 
 
-save_logs(time_log,
-           state_log,
-            control_log,
-            force_log,
-            target_log,
-            distance_log,
-            target_vel_log=target_log,
-            dwa_log=dwa_log, 
-            filename=log_filename)
+save_logs(time_log, state_log, control_log, force_log, target_log,distance_log, filename=log_filename)
 
 sim.stopSimulation()

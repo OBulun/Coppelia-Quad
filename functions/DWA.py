@@ -51,7 +51,7 @@ def dynamic_window_approach(current_state, target_state, dynamic_constraints, dt
 
     # Cost weights (tune these parameters as needed)
     w_pos = 2.0   # Weight for position error.
-    w_vel = 0.2   # Weight for residual velocity.
+    w_vel = 0.9   # Weight for residual velocity.
     w_acc = 0.01  # Weight for control effort.
     
     # Evaluate each candidate acceleration combination.

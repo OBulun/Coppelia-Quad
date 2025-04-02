@@ -6,7 +6,7 @@ from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 from functions.PID_Controller import PIDController
 from functions.save_parameters import save_parameters
 from functions.save_logs import save_logs
-from functions.MPC_controller import mpc_controller
+from functions.mpc_osqp import mpc_controller
 
 def run_simulation(Q):
     """
@@ -58,6 +58,9 @@ def run_simulation(Q):
     m_drone = 0.52                    # Drone mass [kg]
     g = 9.81                          # Gravitational acceleration [m/s²]
     l_arm = 0.13                      # Arm length for force allocation [m]
+    I_x = +6.667e-05                  # moment of inertia about x (roll)
+    I_y = +0.00753                    # moment of inertia about y (pitch)
+    I_z = +0.00753  
     
     # Continuous-time system matrices.
     A = np.zeros((12, 12))
@@ -66,9 +69,9 @@ def run_simulation(Q):
     A[6, 9] = 1; A[7, 10] = 1; A[8, 11] = 1   # Attitude kinematics.
     B = np.zeros((12, 4))
     B[5, 0] = 1.0 / m_drone  # z acceleration from thrust deviation.
-    B[9, 1] = 1.0            # roll acceleration.
-    B[10, 2] = 1.0           # pitch acceleration.
-    B[11, 3] = 1.0           # yaw acceleration.
+    B[9, 1] = 1.0 / I_x           # roll acceleration.
+    B[10, 2] = 1.0 /I_y     # pitch acceleration.
+    B[11, 3] = 1.0     /I_z      # yaw acceleration.
     
     # Discretize system (Euler discretization).
     A_d = np.eye(12) + A * dt
@@ -96,7 +99,7 @@ def run_simulation(Q):
         
         # Update target position (example: step update).
         if t >= 0.1 and t < 5:
-            sim.setObjectPosition(targetHandle, -1, [2.0, 2.0, 3.0])
+            sim.setObjectPosition(targetHandle, -1, [1.0, 1.0, 2.0])
         targetPos = sim.getObjectPosition(targetHandle, -1)
         target_log.append(targetPos)
         ref = np.array([targetPos[0], targetPos[1], targetPos[2],
@@ -154,20 +157,49 @@ def run_simulation(Q):
         sim.step()
     
     sim.stopSimulation()
-    cost = sum([d**2 for d in distance_log])
+
+    # Define weights for position error, velocity error, and terminal cost
+    w_p = 1.0   # Weight for position error (tune as needed)
+    w_v = 0.5   # Weight for velocity error (tune as needed)
+    gamma = 1.0 # Weight for terminal velocity error (tune as needed)
+
+    # Compute the overall cost over the simulation
+    cost = 0.0
+    for state, target in zip(state_log, target_log):
+        # Extract position (first three elements) and velocity (next three elements) from state
+        pos = np.array(state[0:3])
+        vel = np.array(state[3:6])
+
+        # Target position is assumed to be given directly as a 3-element list/array
+        target_pos = np.array(target)
+
+        # Compute errors
+        pos_error = target_pos - pos      # Position error
+        vel_error = -vel                  # Velocity error (desired velocity is zero)
+
+        # Sum the weighted squared errors
+        cost += w_p * np.dot(pos_error, pos_error) + w_v * np.dot(vel_error, vel_error)
+
+    # Optionally, add a terminal cost on the final velocity to ensure the drone stops
+    final_vel = np.array(state_log[-1][3:6])
+    cost += gamma * np.dot(final_vel, final_vel)
+
+   
     return cost
 
 # --- Setup for optimization ---
 # Full Q diagonal initial guess (12 elements)
 initial_guess_full = np.array([0.3, 0.3, 3.0, 0.01, 0.01, 0.1, 0.25, 0.25, 0.1, 0.0, 0.0, 0.0])
 # Free indices: optimize elements 0, 1, 2 and 6, 7, 8.
-free_indices = [0, 1, 2, 6, 7, 8]
+free_indices = [0, 2, 6, 8]
 
 def cost_function_free(free_params):
     # Construct full Q vector: update free indices, keep others fixed.
     full_Q_params = initial_guess_full.copy()
     full_Q_params[free_indices] = free_params
     Q_matrix = np.diag(full_Q_params)
+    Q_matrix[1,1] = Q_matrix[0,0]
+    Q_matrix[7,7] = Q_matrix[6,6]
     cost = run_simulation(Q_matrix)
     print("Trying free parameters:", free_params, "-> Full Q:", full_Q_params, "=> Cost:", cost)
     return cost
