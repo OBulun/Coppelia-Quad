@@ -311,25 +311,6 @@ The `PatternGenerator` class supports 20+ trajectory patterns:
 - **Sensor Noise**: Toggle-able simulation
 - **Status**: ✅ Production ready
 
-## � Future Work
-
-### IDEA-1: Dynamic Window Approach (DWA)
-- Implement DWA as a high-level path planner
-- Use DWA to find safe and smooth state references between targets
-- Use MPC as low-level controller to track DWA references
-- Enable obstacle avoidance and dynamic re-planning
-
-### Other Improvements
-- [ ] Nonlinear MPC for improved accuracy at high speeds
-- [ ] Adaptive MPC with online parameter estimation
-- [ ] Multi-drone coordination and formation control
-- [ ] Vision-based state estimation
-- [ ] Real hardware deployment (PX4/ArduPilot integration)
-- [ ] Reinforcement learning for automatic tuning
-- [ ] ROS2 integration for modularity
-- [ ] GPU acceleration for real-time nonlinear MPC
-- [ ] Extended Kalman Filter (EKF) for state estimation
-- [ ] Collision avoidance with multiple obstacles
 
 ## 📦 Dependencies
 
