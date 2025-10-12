@@ -5,6 +5,9 @@ __pycache__/
 
 # C extensions
 *.so
+#logs
+simulation_logs.csv
+simulation_parameters.txt
 
 # Distribution / packaging
 .Python
