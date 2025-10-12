@@ -6,11 +6,69 @@ import numpy as np
 import cvxpy as cp  # For MPC optimization
 from coppeliasim_zmqremoteapi_client import RemoteAPIClient
 from functions.PID_Controller import PIDController
-import pandas as pd
 from functions.save_parameters import save_parameters
 from functions.save_logs import save_logs
-from functions.mpc_osqp import mpc_controller
+from functions.mpc_dist import mpc_controller
+from functions.patterns import PatternGenerator
 import time
+
+# =============================================================================
+# USER CONFIGURATION
+# =============================================================================
+
+LOG_FILENAME = "simulation_logs.csv"
+SIMULATION_TIME = 50.0  # Total simulation time [s]
+PATTERN_ID = 16  # pattern 0: Christmas tree, 1: rectangular
+INITIAL_TARGET_POSITION = [0.0, 0.0, 1.0]
+INITIAL_DRONE_POSITION = [0.0, 0.0, 1.0]
+
+# Sensor noise simulation toggle: set to True to enable measurement noise simulation
+SIMULATE_SENSOR_NOISE = False
+# Standard deviation (std) for measurement noise applied to position measurements [m]
+SENSOR_NOISE_STD = 0.1
+
+PID_Z_KP = 0.8
+PID_Z_KI = 0.1
+PID_Z_KD = 1.15
+DISTURBANCE_INTEGRATOR_GAIN = 0.3
+
+MPC_PREDICTION_HORIZON = 10
+DRONE_MASS = 3.61  # [kg]
+GRAVITY = 9.81  # [m/s^2]
+INERTIA_X = 0.4815
+INERTIA_Y = 0.4815
+INERTIA_Z = 0.5778
+ARM_LENGTH = 0.13  # Distance from center to each propeller [m]
+LINEAR_DRAG_COEFF = 0.0001
+
+Q_WEIGHTS = [
+    0.5, 0.5, 3.0,    # x, y, z
+    0.05, 0.05, 0.1,  # vx, vy, vz
+    0.75, 0.75, 0.1,  # roll, pitch, yaw
+    0.0, 0.0, 0.0,    # p, q, r
+]
+R_WEIGHTS = [0.1, 0.05, 0.05, 0.1]
+
+DELTA_THRUST_MAX = 1.0
+ROLL_TORQUE_LIMIT = 1.15
+PITCH_TORQUE_LIMIT = 1.15
+YAW_TORQUE_LIMIT = 1.0
+
+ATTITUDE_POSITION_GAIN = 0.1
+MAX_THRUST_FACTOR = 1.5
+MAX_DISTANCE_THRESHOLD = 100.0
+
+PROPELLER_TARGET_VELOCITIES = (-100, 100, -100, 100)
+
+APPLY_WIND = True
+USE_WIND_X_COMPONENT = True
+WIND_FORCE_X_RANGE = (1, 5)    # Low inclusive, high exclusive
+USE_WIND_Y_COMPONENT = False
+WIND_FORCE_Y_RANGE = (5, 16)
+
+
+
+PARAMETERS_OUTPUT = "simulation_parameters.txt"
 
 # =============================================================================
 # INITIALIZATION & CONNECTION SETUP
@@ -20,21 +78,12 @@ import time
 client = RemoteAPIClient()
 sim = client.require('sim')
 
-timestr = time.strftime("%d%m%Y-%H%M%S")
-log_filename = f"simulation_logs.csv"
-
 # =============================================================================
 # SIMULATION PARAMETERS & LOG INITIALIZATION
 # =============================================================================
 
-simualtion_time =30  # Total simulation time [s]
+d_hat = np.zeros(3)
 
-pattern = 0  # pattern 0:Christmas tree 1: rectangular
-
-# PID parameters.
-kp_z = 0.8
-ki_z = 0.1
-kd_z = 1.15
 
 # Data log initialization.
 time_log = []      # List to log simulation time
@@ -64,9 +113,9 @@ for i in range(4):
 # =============================================================================
 
 # Set the target object's initial position.
-sim.setObjectPosition(targetHandle, -1, [0.0, 4.0, 1.0])
+sim.setObjectPosition(targetHandle, -1, INITIAL_TARGET_POSITION)
 # Set the drone's initial position.
-sim.setObjectPosition(droneHandle, -1, [0.0, 4.0, 1.0])
+sim.setObjectPosition(droneHandle, -1, INITIAL_DRONE_POSITION)
 
 # =============================================================================
 # START SIMULATION
@@ -79,51 +128,13 @@ sim.startSimulation()
 # =============================================================================
 # SYSTEM MODEL PARAMETERS & DISCRETIZATION
 # =============================================================================
-"""
-# Define model parameters.
-dt = sim.getSimulationTimeStep()  # Time step [s]
-N = 10                            # MPC prediction horizon
-m_drone = 3.61                # Drone mass [kg]
-g = 9.81                          # Gravitational acceleration [m/s²]
-I_x = +0.4815                  # moment of inertia about x (roll)
-I_y = +0.4815                 # moment of inertia about y (pitch)
-I_z = +0.5778                     # moment of inertia about z (yaw)
-l_arm = 0.13 # Arm length for force allocation (distance from center to each propeller). [m]
 
-# Construct continuous-time A and B matrices.
-A = np.zeros((12, 12))
-# Position integration.
-A[0, 3] = 1
-A[1, 4] = 1
-A[2, 5] = 1
-# Translational dynamics: linearized (small-angle) approximations.
-A[3, 7] = g    # x acceleration from pitch.
-A[4, 6] = -g   # y acceleration from roll.
-# Attitude kinematics.
-A[6, 9] = 1    # roll dot = p.
-A[7,10] = 1    # pitch dot = q.
-A[8,11] = 1    # yaw dot = r.
-
-# Angular accelerations (rows 9-11) are driven by inputs only.
-B = np.zeros((12, 4))
-B[5, 0] = 1.0 / m_drone  # z acceleration from thrust deviation.
-B[9, 1] = 1.0 / I_x           # roll acceleration from roll torque.
-B[10,2] = 1.0 / I_y           # pitch acceleration from pitch torque.
-B[11,3] = 1.0 / I_z          # yaw acceleration from yaw torque.
-"""
 
 # Define model parameters.
 dt = sim.getSimulationTimeStep()  # Time step [s]
-N = 10                            # MPC prediction horizon
-m_drone = 3.61                # Drone mass [kg]
-g = 9.81                          # Gravitational acceleration [m/s²]
-I_x = +0.4815                  # moment of inertia about x (roll)
-I_y = +0.4815                 # moment of inertia about y (pitch)
-I_z = +0.5778                    # moment of inertia about z (yaw)
-l_arm = 0.13 # Arm length for force allocation (distance from center to each propeller). [m]
-bf = 0.0001
 inertiaMatrix, _ = sim.getShapeInertia(droneHandle)
 print(inertiaMatrix)
+pattern_gen = PatternGenerator(PATTERN_ID, SIMULATION_TIME)
 
 # Construct continuous-time A and B matrices.
 A = np.zeros((12, 12))
@@ -131,23 +142,23 @@ A = np.zeros((12, 12))
 A[0, 3] = 1
 A[1, 4] = 1
 A[2, 5] = 1
-A[3, 3] = -bf / m_drone
-A[3, 7] = g
-A[4, 4] = -bf / m_drone
-A[4, 6] = -g
-A[5, 5] = -bf / m_drone
+A[3, 3] = -LINEAR_DRAG_COEFF / DRONE_MASS
+A[3, 7] = GRAVITY
+A[4, 4] = -LINEAR_DRAG_COEFF / DRONE_MASS
+A[4, 6] = -GRAVITY
+A[5, 5] = -LINEAR_DRAG_COEFF / DRONE_MASS
 A[6, 9] = 1
 A[7, 10] = 1
 A[8, 11] = 1
-A[9, 9] = -bf / I_x
-A[10, 10] = -bf / I_y
-A[11, 11] = -bf / I_z
+A[9, 9] = -LINEAR_DRAG_COEFF / INERTIA_X
+A[10, 10] = -LINEAR_DRAG_COEFF / INERTIA_Y
+A[11, 11] = -LINEAR_DRAG_COEFF / INERTIA_Z
 # Angular accelerations (rows 9-11) are driven by inputs only.
 B = np.zeros((12, 4))
-B[5, 0] = 1.0 / m_drone  # z acceleration from thrust deviation.
-B[9, 1] = 1.0 / I_x        # roll acceleration from roll torque.
-B[10,2] = 1.0  /I_y         # pitch acceleration from pitch torque.
-B[11,3] = 1.0  /I_z          # yaw acceleration from yaw torque.
+B[5, 0] = 1.0 / DRONE_MASS  # z acceleration from thrust deviation.
+B[9, 1] = 1.0 / INERTIA_X        # roll acceleration from roll torque.
+B[10, 2] = 1.0 / INERTIA_Y         # pitch acceleration from pitch torque.
+B[11, 3] = 1.0 / INERTIA_Z          # yaw acceleration from yaw torque.
 
 # Discretize the system (Euler discretization).
 A_d = np.eye(12) + A * dt
@@ -158,29 +169,33 @@ B_d = B * dt
 # =============================================================================
 
 # Define cost matrices.
-Q = np.diag([0.5, 0.5, 3.0,    # x, y, z
-             0.05, 0.05, 0.1,  # vx, vy, vz
-             0.75, 0.75, 0.1,  # roll, pitch, yaw
-             0.0, 0.0, 0.0])   # p, q, r
-
-R = np.diag([0.1, 0.05, 0.05, 0.1])
+Q = np.diag(Q_WEIGHTS)
+R = np.diag(R_WEIGHTS)
 
 # Input bounds for [delta_thrust, roll torque, pitch torque, yaw torque].
-u_min = np.array([-m_drone * g, -1.15, -1.15, -1.0])
-u_max = np.array([1.0, 1.15, 1.15, 1.0])
+u_min = np.array([
+    -DRONE_MASS * GRAVITY,
+    -ROLL_TORQUE_LIMIT,
+    -PITCH_TORQUE_LIMIT,
+    -YAW_TORQUE_LIMIT,
+])
+u_max = np.array([
+    DELTA_THRUST_MAX,
+    ROLL_TORQUE_LIMIT,
+    PITCH_TORQUE_LIMIT,
+    YAW_TORQUE_LIMIT,
+])
 
 # Create an instance of the PID controller for altitude correction.
-pid_z = PIDController(kp=kp_z, ki=ki_z, kd=kd_z, dt=dt)
-
+pid_z = PIDController(kp=PID_Z_KP, ki=PID_Z_KI, kd=PID_Z_KD, dt=dt)
 
 # Save simulation parameters.
-save_parameters(Q, R, N, pid_z.get_parameters(), filename="simulation_parameters.txt")
+save_parameters(Q, R, MPC_PREDICTION_HORIZON, pid_z.get_parameters(), filename=PARAMETERS_OUTPUT)
 
 # =============================================================================
 # SIMULATION LOOP
 # =============================================================================
-Kp_att = 0.1
-while (t := sim.getSimulationTime()) < simualtion_time:
+while (t := sim.getSimulationTime()) < SIMULATION_TIME:
     print(f"Simulation time: {t:.2f} s")
 
     # --- State Estimation ---
@@ -196,53 +211,27 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         ori[0], ori[1], ori[2],
         angVel[0], angVel[1], angVel[2]
     ])
-    """ Simulate Sensor Noise """
-    """ x0[0] = noise.add_measurement_noise(x0[0], 0.1)
-    x0[1] = noise.add_measurement_noise(x0[1], 0.1)
-    x0[2] = noise.add_measurement_noise(x0[2], 0.1) """  
+    # Add measurement noise if enabled.
+    if SIMULATE_SENSOR_NOISE:
+        # `add_measurement_noise` expects an array-like input; convert scalar position
+        # entries into 1-element arrays, apply noise, then extract scalar back.
+        x0[0] = float(noise.add_measurement_noise(np.array([x0[0]]), SENSOR_NOISE_STD)[0])
+        x0[1] = float(noise.add_measurement_noise(np.array([x0[1]]), SENSOR_NOISE_STD)[0])
+        x0[2] = float(noise.add_measurement_noise(np.array([x0[2]]), SENSOR_NOISE_STD)[0])
     
     # Log the current state and time.
     time_log.append(t)
     state_log.append(x0)
     
     
-    """# --- Target Position Update - Christmas Tree Pattern ---"""  
-    if pattern == 0:
-        end_time = simualtion_time-10
-        if simualtion_time-t < 10:
-            targetObjPos = [0, 0, 1.0+0.1*end_time]
-        else:
-        
-            targetObjPos = [
-                4*np.exp(-0.05*t) * np.sin(0.9*t),  # Sine wave movement for x
-                4*np.exp(-0.05*t) * np.cos(0.9*t),  # Sine wave movement for y
-                1.0+0.1*t             # Fixed altitude (z)
-            ]
-        sim.setObjectPosition(targetHandle, -1, targetObjPos)
-
-    elif pattern == 1:
-        """ # --- Target Position Update - Step  ---"""
-
-        if t >=0.1 and t < 5:
-            sim.setObjectPosition(targetHandle, -1, [2.0, 2.0, 2.0])
-        elif t>= 5 and t<10:
-            sim.setObjectPosition(targetHandle, -1, [-2.0, 2.0, 2.0])
-        elif t>= 10 and t < 15:
-            sim.setObjectPosition(targetHandle, -1, [-2.0, -2.0, 2.0])
-        elif t>=15 and t< 20:
-            sim.setObjectPosition(targetHandle, -1, [2.0, -2.0, 2.0])
-        else:
-            sim.setObjectPosition(targetHandle, -1, [0.0, 0.0, 2.0])
-    elif pattern == 2:
-        pass    
-        
     
+    targetObjPos = pattern_gen.get_position(t)
+    sim.setObjectPosition(targetHandle, -1, targetObjPos)
 
     # --- Define the Reference State ---
     targetPos = sim.getObjectPosition(targetHandle, -1)
     target_log.append(targetPos)
 
-    
     # -- Compute the distance to the target --
     x_err = targetPos[0] - pos[0]
     y_err = targetPos[1] - pos[1]
@@ -250,9 +239,9 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     distance = np.sqrt(x_err**2 + y_err**2 + z_err**2)
     pos_error = np.array(targetPos) - np.array(pos)
     # Using a simple proportional law to generate desired roll and pitch.
-    # For small angles: roll_des ≈ (1/g)*(Kp_att * error_y), pitch_des ≈ -(1/g)*(Kp_att * error_x)
-    roll_des = (1/g) * (Kp_att * pos_error[1])
-    pitch_des = -(1/g) * (Kp_att * pos_error[0])
+    # For small angles: roll_des ~ (1/g)*(ATTITUDE_POSITION_GAIN * error_y), pitch_des ~ -(1/g)*(ATTITUDE_POSITION_GAIN * error_x)
+    roll_des = (1 / GRAVITY) * (ATTITUDE_POSITION_GAIN * pos_error[1])
+    pitch_des = -(1 / GRAVITY) * (ATTITUDE_POSITION_GAIN * pos_error[0])
     yaw_des = 0.0  # desired yaw
     ref = np.array([targetPos[0], targetPos[1], targetPos[2],
                     0, 0, 0,
@@ -261,15 +250,20 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     
     distance_log.append(distance)
 
+    pos_err = np.array(pos[:3]) - np.array(targetPos[:3])
+    d_hat += DISTURBANCE_INTEGRATOR_GAIN * pos_err * dt
+
+
     # --- Solve the MPC Problem with PID Altitude Correction ---
     try:
         u_opt, x_pred = mpc_controller(
-            x0, A_d, B_d, ref, N, Q, R, u_min, u_max, 
-            pid_controller=pid_z,
+            x0, A_d, B_d, ref, MPC_PREDICTION_HORIZON, Q, R, u_min, u_max,
+            pid_controller_z=pid_z, d_hat=d_hat
         )
     except Exception as e:
         print("MPC error:", e)
         u_opt = np.zeros(4)
+
 
     # Extract control commands.
     delta_thrust = u_opt[0]
@@ -279,15 +273,13 @@ while (t := sim.getSimulationTime()) < simualtion_time:
     control_log.append(u_opt)
 
     # Compute total thrust command: add gravitational compensation.
-    total_thrust = delta_thrust + m_drone * g
-    total_thrust = min(total_thrust, m_drone * g * 1.5)  # Limit the maximum thrust.
-    u_fin = [total_thrust, roll_torque, pitch_torque, yaw_torque]
-
+    total_thrust = delta_thrust + DRONE_MASS * GRAVITY
+    total_thrust = min(total_thrust, DRONE_MASS * GRAVITY * MAX_THRUST_FACTOR)  # Limit the maximum thrust.
     # --- Force/Torque Allocation ---
-    f0 = total_thrust / 4 + roll_torque / (2 * l_arm) - pitch_torque / (2 * l_arm) - yaw_torque / 4
-    f1 = total_thrust / 4 + roll_torque / (2 * l_arm) + pitch_torque / (2 * l_arm) + yaw_torque / 4
-    f2 = total_thrust / 4 - roll_torque / (2 * l_arm) + pitch_torque / (2 * l_arm) - yaw_torque / 4
-    f3 = total_thrust / 4 - roll_torque / (2 * l_arm) - pitch_torque / (2 * l_arm) + yaw_torque / 4
+    f0 = total_thrust / 4 + roll_torque / (2 * ARM_LENGTH) - pitch_torque / (2 * ARM_LENGTH) - yaw_torque / 4
+    f1 = total_thrust / 4 + roll_torque / (2 * ARM_LENGTH) + pitch_torque / (2 * ARM_LENGTH) + yaw_torque / 4
+    f2 = total_thrust / 4 - roll_torque / (2 * ARM_LENGTH) + pitch_torque / (2 * ARM_LENGTH) - yaw_torque / 4
+    f3 = total_thrust / 4 - roll_torque / (2 * ARM_LENGTH) - pitch_torque / (2 * ARM_LENGTH) + yaw_torque / 4
     force_log.append([f0, f1, f2, f3])
 
     # --- Force Transformation from Body to World Frame ---
@@ -308,26 +300,25 @@ while (t := sim.getSimulationTime()) < simualtion_time:
         force_world = sim.multiplyVector(bodyMatrix, force)
         forces_world.append(force_world)
 
-    #Add wind forces
-    wind_x = random_int = np.random.randint(5, 16)
-    wind_y = random_int = np.random.randint(5, 16)
-    windVector = [0,0,0]#[wind_x,wind_y,0]
-    sim.addForceAndTorque(droneHandle, windVector, [0, 0, 0])
+    # Add wind forces when enabled.
+    if APPLY_WIND:
+        wind_x = np.random.randint(*WIND_FORCE_X_RANGE) if USE_WIND_X_COMPONENT else 0
+        wind_y = np.random.randint(*WIND_FORCE_Y_RANGE) if USE_WIND_Y_COMPONENT else 0
+        wind_vector = [wind_x, wind_y, 0]
+        sim.addForceAndTorque(droneHandle, wind_vector, [0, 0, 0])
 
     # --- Apply Forces to Propellers ---
     for i in range(4):
         sim.addForceAndTorque(propellerHandle[i], forces_world[i], [0, 0, 0])
     
-    #Rotate the propellers (visual effect)
-    sim.setJointTargetVelocity(jointHandle[0], -100)
-    sim.setJointTargetVelocity(jointHandle[1], 100)
-    sim.setJointTargetVelocity(jointHandle[2], -100)
-    sim.setJointTargetVelocity(jointHandle[3], 100)
+    # Rotate the propellers (visual effect)
+    for joint, velocity in zip(jointHandle, PROPELLER_TARGET_VELOCITIES):
+        sim.setJointTargetVelocity(joint, velocity)
 
     # Step the simulation.
     sim.step()
-    if distance >= 100:
-        save_logs(time_log, state_log, control_log, force_log, target_log,distance_log, filename=log_filename)
+    if distance >= MAX_DISTANCE_THRESHOLD:
+        save_logs(time_log, state_log, control_log, force_log, target_log, distance_log, filename=LOG_FILENAME)
         sim.stopSimulation()
         break
 
@@ -336,6 +327,6 @@ while (t := sim.getSimulationTime()) < simualtion_time:
 # =============================================================================
 
 
-save_logs(time_log, state_log, control_log, force_log, target_log,distance_log, filename=log_filename)
+save_logs(time_log, state_log, control_log, force_log, target_log, distance_log, filename=LOG_FILENAME)
 
 sim.stopSimulation()

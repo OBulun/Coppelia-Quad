@@ -1,97 +1,93 @@
+#!/usr/bin/env python3
 import pandas as pd
-import matplotlib.pyplot as plt
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-def read_params(filename):
-    with open(filename, "r") as f:
-        return f.read()
 
 def main():
-    # Read the simulation logs CSV.
-    df = pd.read_csv("simulation_logs.csv")
-    
-    # Read the parameter file.
-    params_text = read_params("simulation_parameters.txt")
-    
-    # Create a figure with subplots.
-    fig, axs = plt.subplots(3, 2, figsize=(14, 12))
-    
-    # --- Plot Positions ---
-    axs[0, 0].plot(df["time"], df["x"], label="x", color="C0")
-    axs[0, 0].plot(df["time"], df["y"], label="y", color="C1")
-    axs[0, 0].plot(df["time"], df["z"], label="z", color="C2")
-    # Plot target positions with dashed lines.
-    axs[0, 0].plot(df["time"], df["target_x"], label="target x", linestyle="--", color="C0")
-    axs[0, 0].plot(df["time"], df["target_y"], label="target y", linestyle="--", color="C1")
-    axs[0, 0].plot(df["time"], df["target_z"], label="target z", linestyle="--", color="C2")
-    #Plot DWA
-    #axs[0, 0].plot(df["time"], df["dwa_x"], label="dwa x", linestyle=":", color="C0")
-    #axs[0, 0].plot(df["time"], df["dwa_y"], label="dwa y", linestyle=":", color="C1")
-    #axs[0, 0].plot(df["time"], df["dwa_z"], label="dwa z", linestyle=":", color="C2")
-    axs[0, 0].set_title("Positions vs Time")
-    axs[0, 0].set_xlabel("Time [s]")
-    axs[0, 0].set_ylabel("Position [m]")
-    axs[0, 0].legend()
-    axs[0, 0].grid(True)
-    
-    # --- Plot Velocities ---
-    axs[0, 1].plot(df["time"], df["vx"], label="vx")
-    axs[0, 1].plot(df["time"], df["vy"], label="vy")
-    axs[0, 1].plot(df["time"], df["vz"], label="vz")
-    #axs[0, 1].plot(df["time"], df["target_vx"], label="target vx", linestyle="--")
-    #axs[0, 1].plot(df["time"], df["target_vy"], label="target vy", linestyle="--")
-    #axs[0, 1].plot(df["time"], df["target_vz"], label="target vz", linestyle="--")
-    axs[0, 1].set_title("Velocities vs Time")
-    axs[0, 1].set_xlabel("Time [s]")
-    axs[0, 1].set_ylabel("Velocity [m/s]")
-    axs[0, 1].legend()
-    axs[0, 1].grid(True)
-    
-    # --- Plot Euler Angles ---
-    axs[1, 0].plot(df["time"], df["roll"], label="roll")
-    axs[1, 0].plot(df["time"], df["pitch"], label="pitch")
-    axs[1, 0].plot(df["time"], df["yaw"], label="yaw")
-    axs[1, 0].set_title("Euler Angles vs Time")
-    axs[1, 0].set_xlabel("Time [s]")
-    axs[1, 0].set_ylabel("Angle [rad]")
-    axs[1, 0].legend()
-    axs[1, 0].grid(True)
-    
-    # --- Plot Control Inputs ---
-    axs[1, 1].plot(df["time"], df["delta_thrust"], label="delta_thrust")
-    axs[1, 1].plot(df["time"], df["roll_torque"], label="roll_torque")
-    axs[1, 1].plot(df["time"], df["pitch_torque"], label="pitch_torque")
-    axs[1, 1].plot(df["time"], df["yaw_torque"], label="yaw_torque")
-    axs[1, 1].set_title("Control Inputs vs Time")
-    axs[1, 1].set_xlabel("Time [s]")
-    axs[1, 1].set_ylabel("Control Input")
-    axs[1, 1].legend()
-    axs[1, 1].grid(True)
-    
-    # --- Plot Forces (f0, f1, f2, f3) ---
-    axs[2, 0].plot(df["time"], df["f0"], label="f0")
-    axs[2, 0].plot(df["time"], df["f1"], label="f1")
-    axs[2, 0].plot(df["time"], df["f2"], label="f2")
-    axs[2, 0].plot(df["time"], df["f3"], label="f3")
-    axs[2, 0].set_title("Propeller Forces vs Time")
-    axs[2, 0].set_xlabel("Time [s]")
-    axs[2, 0].set_ylabel("Force [N]")
-    axs[2, 0].legend()
-    axs[2, 0].grid(True)
-    
-    # --- Unused subplot (bottom-right) ---
-    axs[2, 1].plot(df["time"], df["distance"], label="distance")
-    axs[2, 1].set_title("Distance to target vs Time")
-    axs[2, 1].set_xlabel("Time [s]")
-    axs[2, 1].set_ylabel("Distance [m]")
-    axs[2, 1].legend()
-    axs[2, 1].grid(True)
-    
-    # Add a text annotation with the parameter information.
-    # Here we position it at (0.9, 0.01); adjust as needed.
-    fig.text(0.9, 0.01, params_text, ha="center", fontsize=8, wrap=True)
-    
-    plt.tight_layout(rect=[0, 0.05, 1, 1])  # Leave space for the annotation.
-    plt.show()
+    # Load the simulation log CSV
+    df = pd.read_csv('./simulation_logs.csv')
+    filename = "./logs/simulation_logs_latest.html"
+    # Create a 3×2 grid of subplots
+    fig = make_subplots(
+        rows=3, cols=2,
+        subplot_titles=[
+            'Positions vs Time', 'Velocities vs Time',
+            'Euler Angles vs Time', 'Control Inputs vs Time',
+            'Propeller Forces vs Time', 'Distance to Target vs Time'
+        ]
+    )
 
-if __name__ == "__main__":
+    # --- Positions vs Time (row=1, col=1) ---
+    for axis in ['x', 'y', 'z']:
+        fig.add_trace(
+            go.Scatter(x=df['time'], y=df[axis], mode='lines', name=axis),
+            row=1, col=1
+        )
+    for axis in ['target_x', 'target_y', 'target_z']:
+        name = axis.replace('target_', 'target ')
+        fig.add_trace(
+            go.Scatter(x=df['time'], y=df[axis], mode='lines', line=dict(dash='dash'), name=name),
+            row=1, col=1
+        )
+    fig.update_xaxes(title_text='Time [s]', row=1, col=1)
+    fig.update_yaxes(title_text='Position [m]', row=1, col=1)
+
+    # --- Velocities vs Time (row=1, col=2) ---
+    for axis in ['vx', 'vy', 'vz']:
+        fig.add_trace(
+            go.Scatter(x=df['time'], y=df[axis], mode='lines', name=axis),
+            row=1, col=2
+        )
+    fig.update_xaxes(title_text='Time [s]', row=1, col=2)
+    fig.update_yaxes(title_text='Velocity [m/s]', row=1, col=2)
+
+    # --- Euler Angles vs Time (row=2, col=1) ---
+    for axis in ['roll', 'pitch', 'yaw']:
+        fig.add_trace(
+            go.Scatter(x=df['time'], y=df[axis], mode='lines', name=axis),
+            row=2, col=1
+        )
+    fig.update_xaxes(title_text='Time [s]', row=2, col=1)
+    fig.update_yaxes(title_text='Angle [rad]', row=2, col=1)
+
+    # --- Control Inputs vs Time (row=2, col=2) ---
+    for axis in ['delta_thrust', 'roll_torque', 'pitch_torque', 'yaw_torque']:
+        fig.add_trace(
+            go.Scatter(x=df['time'], y=df[axis], mode='lines', name=axis),
+            row=2, col=2
+        )
+    fig.update_xaxes(title_text='Time [s]', row=2, col=2)
+    fig.update_yaxes(title_text='Control Input', row=2, col=2)
+
+    # --- Propeller Forces vs Time (row=3, col=1) ---
+    for axis in ['f0', 'f1', 'f2', 'f3']:
+        fig.add_trace(
+            go.Scatter(x=df['time'], y=df[axis], mode='lines', name=axis),
+            row=3, col=1
+        )
+    fig.update_xaxes(title_text='Time [s]', row=3, col=1)
+    fig.update_yaxes(title_text='Force [N]', row=3, col=1)
+
+    # --- Distance to Target vs Time (row=3, col=2) ---
+    fig.add_trace(
+        go.Scatter(x=df['time'], y=df['distance'], mode='lines', name='distance'),
+        row=3, col=2
+    )
+    fig.update_xaxes(title_text='Time [s]', row=3, col=2)
+    fig.update_yaxes(title_text='Distance [m]', row=3, col=2)
+
+    # Final layout tweaks
+    fig.update_layout(
+        height=2560, width=1440,
+        title_text='Simulation Logs Overview',
+        legend=dict(traceorder='grouped')
+    )
+
+    # Save to HTML for interactive view
+    fig.write_html(filename, include_plotlyjs='cdn')
+    print(f"Interactive plot saved to {filename}")
+
+
+if __name__ == '__main__':
     main()
